@@ -146,6 +146,11 @@ begin
     var JsonResult := ResultValue.AsType<TJsonObject>;
     Result.AddPair('structuredContent', TJSONObject(JsonResult.Clone));
 
+    var ContentItem := TJSONObject.Create;
+    ContentArray.AddElement(ContentItem);
+    ContentItem.AddPair('type', 'text');
+    ContentItem.AddPair('text', JsonResult.ToJson());
+
     var ErrorValue := JsonResult.GetValue('error');
     var HasError := Assigned(ErrorValue) and (ErrorValue.Value <> '');
     if HasError then
