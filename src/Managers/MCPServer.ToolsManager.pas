@@ -146,6 +146,9 @@ begin
     var JsonResult := ResultValue.AsType<TJsonObject>;
     Result.AddPair('structuredContent', TJSONObject(JsonResult.Clone));
 
+    var ContentArray := TJSONArray.Create;
+    Result.AddPair('content', ContentArray);
+
     var ContentItem := TJSONObject.Create;
     ContentArray.AddElement(ContentItem);
     ContentItem.AddPair('type', 'text');
