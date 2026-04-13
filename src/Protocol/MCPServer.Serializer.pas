@@ -248,6 +248,27 @@ begin
         Result := TJSONBool.Create(Value.AsBoolean)
       else
         Result := TJSONNumber.Create(Value.AsOrdinal);
+
+    tkDynArray:
+      begin
+        var ArrayType := TRttiDynamicArrayType(RttiType);
+        var JsonArray := TJSONArray.Create;
+        try
+          for var I := 0 to Value.GetArrayLength - 1 do
+          begin
+            var ElementJson := ConvertValueToJson(Value.GetArrayElement(I), ArrayType.ElementType);
+            if Assigned(ElementJson) then
+              JsonArray.AddElement(ElementJson)
+            else
+              JsonArray.AddElement(TJSONNull.Create);
+          end;
+
+          Result := JsonArray;
+        except
+          JsonArray.Free;
+          raise;
+        end;
+      end;
         
     tkClass:
       if Value.IsObject and (Value.AsObject <> nil) then

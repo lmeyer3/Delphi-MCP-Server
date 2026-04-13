@@ -30,6 +30,7 @@ A Model Context Protocol (MCP) server implementation in Delphi, designed to inte
 - **Full MCP Protocol Support**: Implements MCP specification 2025-06-18 with Streamable HTTP and SSE
 - **Dual Transport Support**: HTTP (Streamable HTTP with SSE) and STDIO (stdin/stdout)
 - **Dual Response Mode**: Supports both JSON-RPC and Server-Sent Events in the same server
+- **Client Elicitation (HTTP)**: Supports server-initiated `elicitation/create` requests, URL completion notifications, and `-32042` URL-required errors over HTTP sessions
 - **Tool System**: Extensible tool system with RTTI-based discovery and execution
 - **Resource Management**: Modular resource system supporting various content types
 - **Security**: Built-in security features including CORS configuration
@@ -96,6 +97,8 @@ Win32\Debug\MCPServer.exe
 ```
 
 The server will listen on `http://localhost:3000/mcp` by default (configurable via settings.ini).
+
+HTTP sessions also support server-initiated client requests for elicitation. The current implementation delivers outbound `elicitation/create` requests and `notifications/elicitation/complete` notifications through a session-bound GET request with `Accept: text/event-stream` and the `Mcp-Session-Id` header.
 
 **Use HTTP transport for:**
 - Claude Code (SSE support)
@@ -422,12 +425,26 @@ The easiest way to test and debug your MCP server is using the official MCP Insp
    - Click **Connect**
 
 4. **Test functionality**:
-   - Browse available tools and resources
-   - Execute tools like `echo`, `get_time`, `calculate`
-   - View resources like `project://info`, `server://status`
-   - Monitor request/response JSON-RPC messages
+    - Browse available tools and resources
+    - Execute tools like `echo`, `get_time`, `calculate`, and `elicitation_demo`
+    - View resources like `project://info`, `server://status`
+    - Monitor request/response JSON-RPC messages
 
 The Inspector provides a web interface to interact with your MCP server, making it perfect for development and debugging.
+
+### Testing HTTP elicitation manually
+
+Use an MCP client that:
+
+1. Calls `initialize` with `capabilities.elicitation`
+2. Reuses the returned `Mcp-Session-Id`
+3. Keeps a GET request open with `Accept: text/event-stream`
+
+The demo tools included in this repository exercise the supported flows:
+
+- `elicitation_demo` - sends direct form or URL `elicitation/create` requests
+- `url_protected_demo` - returns `-32042` until the corresponding URL elicitation is completed
+- `complete_url_demo` - marks a demo URL elicitation complete and queues `notifications/elicitation/complete`
 
 ## Available Example tools
 
@@ -435,6 +452,9 @@ The Inspector provides a web interface to interact with your MCP server, making 
 - **get_time**: Get the current server time
 - **list_files**: List files in a directory
 - **calculate**: Perform basic arithmetic calculations
+- **elicitation_demo**: Exercise direct form or URL elicitation over HTTP
+- **url_protected_demo**: Demonstrate the `-32042` URL-required error flow
+- **complete_url_demo**: Queue a URL completion notification for the active session
 
 ## Available Example resources
 

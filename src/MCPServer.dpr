@@ -18,6 +18,9 @@ uses
   MCPServer.Settings in 'Core\MCPServer.Settings.pas',
   MCPServer.Registration in 'Core\MCPServer.Registration.pas',
   MCPServer.ManagerRegistry in 'Core\MCPServer.ManagerRegistry.pas',
+  MCPServer.RequestContext in 'Core\MCPServer.RequestContext.pas',
+  MCPServer.SessionManager in 'Core\MCPServer.SessionManager.pas',
+  MCPServer.Elicitation in 'Core\MCPServer.Elicitation.pas',
   MCPServer.Tool.Base in 'Tools\MCPServer.Tool.Base.pas',
   MCPServer.Resource.Base in 'Resources\MCPServer.Resource.Base.pas',
   MCPServer.IdHTTPServer in 'Server\MCPServer.IdHTTPServer.pas',
@@ -31,6 +34,9 @@ uses
   MCPServer.Tool.GetTime in 'Tools\MCPServer.Tool.GetTime.pas',
   MCPServer.Tool.ListFiles in 'Tools\MCPServer.Tool.ListFiles.pas',
   MCPServer.Tool.Calculate in 'Tools\MCPServer.Tool.Calculate.pas',
+  MCPServer.Tool.ElicitationDemo in 'Tools\MCPServer.Tool.ElicitationDemo.pas',
+  MCPServer.Tool.URLProtectedDemo in 'Tools\MCPServer.Tool.URLProtectedDemo.pas',
+  MCPServer.Tool.CompleteURLDemo in 'Tools\MCPServer.Tool.CompleteURLDemo.pas',
   MCPServer.Resource.Logs in 'Resources\MCPServer.Resource.Logs.pas',
   MCPServer.Resource.Project in 'Resources\MCPServer.Resource.Project.pas';
 
@@ -70,7 +76,7 @@ begin
     ShutdownEvent.SetEvent;
 end;
 {$ENDIF}
-  
+
 procedure RunHTTPServer;
 begin
   Settings := TMCPSettings.Create;
@@ -158,30 +164,26 @@ begin
 end;
 
 begin
-  // Check if running in STDIO mode before any logging
   if HasStdioFlag then
     TLogger.UseStdErr := True;
 
-  // Configure logger
   TLogger.LogToConsole := True;
   TLogger.MinLogLevel := TLogLevel.Info;
 
   ReportMemoryLeaksOnShutdown := True;
   IsMultiThread := True;
-  
-  // Create shutdown event
+
   ShutdownEvent := TEvent.Create(nil, True, False, '');
   try
-    // Set up signal handlers
     {$IFDEF MSWINDOWS}
     SetConsoleCtrlHandler(@ConsoleCtrlHandler, True);
     {$ENDIF}
-    
+
     {$IFDEF POSIX}
     signal(SIGINT, @SignalHandler);
     signal(SIGTERM, @SignalHandler);
     {$ENDIF}
-    
+
     try
       TServerStatusResource.Initialize;
 
@@ -194,7 +196,7 @@ begin
       on E: Exception do
         TLogger.Error(E);
     end;
-    
+
     {$IFDEF MSWINDOWS}
     SetConsoleCtrlHandler(@ConsoleCtrlHandler, False);
     {$ENDIF}

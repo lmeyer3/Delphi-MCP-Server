@@ -15,7 +15,7 @@ uses
 type
   TMCPToolsManager = class(TInterfacedObject, IMCPCapabilityManager)
   strict private
-    function ExtractToolNameAndArguments(const Params: System.JSON.TJSONObject; out ToolName: string; out Arguments: TJSONObject): Boolean;
+    function ExtractToolNameAndArguments(const Params: TJSONObject; out ToolName: string; out Arguments: TJSONObject): Boolean;
     function ExecuteTool(const Tool: IMCPTool; const Arguments: TJSONObject): TValue;
     function BuildToolCallResponse(const ResultValue: TValue): TJSONObject;
     function BuildToolListResponse: TJSONObject;
@@ -27,21 +27,19 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    
+
     function GetCapabilityName: string;
     function HandlesMethod(const Method: string): Boolean;
-    function ExecuteMethod(const Method: string; const Params: System.JSON.TJSONObject): TValue;
-    
+    function ExecuteMethod(const Method: string; const Params: TJSONObject): TValue;
+
     function ListTools: TValue;
-    function CallTool(const Params: System.JSON.TJSONObject): TValue;
+    function CallTool(const Params: TJSONObject): TValue;
   end;
 
 implementation
 
 uses
   MCPServer.Registration;
-
-{ TMCPToolsManager }
 
 constructor TMCPToolsManager.Create;
 begin
@@ -66,7 +64,7 @@ begin
   Result := (Method = 'tools/list') or (Method = 'tools/call');
 end;
 
-function TMCPToolsManager.ExecuteMethod(const Method: string; const Params: System.JSON.TJSONObject): TValue;
+function TMCPToolsManager.ExecuteMethod(const Method: string; const Params: TJSONObject): TValue;
 begin
   if Method = 'tools/list' then
     Result := ListTools
@@ -90,22 +88,23 @@ begin
   end;
 end;
 
-function TMCPToolsManager.ExtractToolNameAndArguments(const Params: System.JSON.TJSONObject; out ToolName: string; out Arguments: TJSONObject): Boolean;
+function TMCPToolsManager.ExtractToolNameAndArguments(const Params: TJSONObject;
+  out ToolName: string; out Arguments: TJSONObject): Boolean;
 begin
   Result := False;
   ToolName := '';
   Arguments := nil;
-  
+
   if not Assigned(Params) then
     Exit;
-    
+
   var NameValue := Params.GetValue('name');
   if Assigned(NameValue) then
   begin
     ToolName := NameValue.Value;
     Result := ToolName <> '';
   end;
-  
+
   var ArgsValue := Params.GetValue('arguments');
   if Assigned(ArgsValue) and (ArgsValue is TJSONObject) then
     Arguments := ArgsValue as TJSONObject;
@@ -116,6 +115,8 @@ begin
   try
     Result := Tool.Execute(Arguments);
   except
+    on E: EMCPJsonRpcError do
+      raise;
     on E: Exception do
       Result := 'Error executing tool: ' + E.Message;
   end;
@@ -141,9 +142,9 @@ begin
     if HasError then
       Result.AddPair('isError', TJSONBool.Create(True));
   end
-  else if ResultValue.IsType<TJsonObject> then
+  else if ResultValue.IsType<TJSONObject> then
   begin
-    var JsonResult := ResultValue.AsType<TJsonObject>;
+    var JsonResult := ResultValue.AsType<TJSONObject>;
     Result.AddPair('structuredContent', TJSONObject(JsonResult.Clone));
 
     var ContentArray := TJSONArray.Create;
@@ -152,14 +153,13 @@ begin
     var ContentItem := TJSONObject.Create;
     ContentArray.AddElement(ContentItem);
     ContentItem.AddPair('type', 'text');
-    ContentItem.AddPair('text', JsonResult.ToJson());
+    ContentItem.AddPair('text', JsonResult.ToJSON);
 
     var ErrorValue := JsonResult.GetValue('error');
     var HasError := Assigned(ErrorValue) and (ErrorValue.Value <> '');
     if HasError then
       Result.AddPair('isError', TJSONBool.Create(True));
   end;
-
 end;
 
 function TMCPToolsManager.CreateToolJSON(const Tool: IMCPTool): TJSONObject;
@@ -177,6 +177,7 @@ begin
     Result.AddPair('inputSchema', SchemaClone);
     Schema.Free;
   end;
+
   Schema := Tool.OutputSchema;
   if Assigned(Schema) then
   begin
@@ -184,7 +185,6 @@ begin
     Result.AddPair('outputSchema', SchemaClone);
     Schema.Free;
   end;
-
 end;
 
 function TMCPToolsManager.BuildToolListResponse: TJSONObject;
@@ -192,7 +192,7 @@ begin
   Result := TJSONObject.Create;
   var ToolsArray := TJSONArray.Create;
   Result.AddPair('tools', ToolsArray);
-  
+
   for var Tool in FTools.Values do
   begin
     var ToolJSON := CreateToolJSON(Tool);
@@ -200,7 +200,7 @@ begin
   end;
 end;
 
-function TMCPToolsManager.CallTool(const Params: System.JSON.TJSONObject): TValue;
+function TMCPToolsManager.CallTool(const Params: TJSONObject): TValue;
 begin
   var ToolName: string;
   var Arguments: TJSONObject;
@@ -210,17 +210,17 @@ begin
     Result := TValue.From<TJSONObject>(BuildToolCallResponse('Error: Invalid tool parameters'));
     Exit;
   end;
-  
+
   TLogger.Info('MCP CallTool called for tool: ' + ToolName);
-  
+
   var Tool: IMCPTool;
-  var ResultValue : TValue;
+  var ResultValue: TValue;
 
   if FTools.TryGetValue(ToolName, Tool) then
-    resultValue := ExecuteTool(Tool, Arguments)
+    ResultValue := ExecuteTool(Tool, Arguments)
   else
     ResultValue := TValue.From('Error: Tool not found: ' + ToolName);
-    
+
   Result := TValue.From<TJSONObject>(BuildToolCallResponse(ResultValue));
 end;
 

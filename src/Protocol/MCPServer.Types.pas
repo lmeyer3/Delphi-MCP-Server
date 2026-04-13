@@ -10,6 +10,13 @@ uses
 const
   MCP_PROTOCOL_VERSION = '2025-06-18';
 
+  JSONRPC_PARSE_ERROR = -32700;
+  JSONRPC_INVALID_REQUEST = -32600;
+  JSONRPC_METHOD_NOT_FOUND = -32601;
+  JSONRPC_INVALID_PARAMS = -32602;
+  JSONRPC_INTERNAL_ERROR = -32603;
+  JSONRPC_URL_ELICITATION_REQUIRED = -32042;
+
 type
   OptionalAttribute = class(TCustomAttribute)
   end;
@@ -34,21 +41,33 @@ type
     property Values: TArray<string> read FValues;
   end;
 
+  EMCPJsonRpcError = class(Exception)
+  private
+    FCode: Integer;
+    FData: TJSONObject;
+    class function CloneData(const Value: TJSONObject): TJSONObject; static;
+  public
+    constructor Create(ACode: Integer; const AMessage: string; AData: TJSONObject = nil); reintroduce;
+    destructor Destroy; override;
+    property Code: Integer read FCode;
+    property Data: TJSONObject read FData;
+  end;
+
   TMCPToolsCapability = class;
-  
+
   IMCPCapabilityManager = interface
     ['{E5F7C3A1-8B4D-4F6E-9C2A-1D3E5F7A9B8C}']
     function GetCapabilityName: string;
     function HandlesMethod(const Method: string): Boolean;
     function ExecuteMethod(const Method: string; const Params: TJSONObject): TValue;
   end;
-  
+
   IMCPManagerRegistry = interface
     ['{A2B4C6D8-1E3F-5A7B-9C8D-2F4E6A8C0B2D}']
     procedure RegisterManager(const Manager: IMCPCapabilityManager);
     function GetManagerForMethod(const Method: string): IMCPCapabilityManager;
   end;
-  
+
   TMCPCapabilities = class
   private
     FTools: TMCPToolsCapability;
@@ -162,6 +181,29 @@ begin
   FValues[1] := AValue2;
   FValues[2] := AValue3;
   FValues[3] := AValue4;
+end;
+
+{ EMCPJsonRpcError }
+
+class function EMCPJsonRpcError.CloneData(const Value: TJSONObject): TJSONObject;
+begin
+  Result := nil;
+  if Assigned(Value) then
+    Result := TJSONObject.ParseJSONValue(Value.ToJSON) as TJSONObject;
+end;
+
+constructor EMCPJsonRpcError.Create(ACode: Integer; const AMessage: string;
+  AData: TJSONObject);
+begin
+  inherited Create(AMessage);
+  FCode := ACode;
+  FData := CloneData(AData);
+end;
+
+destructor EMCPJsonRpcError.Destroy;
+begin
+  FData.Free;
+  inherited;
 end;
 
 { TMCPInitializeResponse }
