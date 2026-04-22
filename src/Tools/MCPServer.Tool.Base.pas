@@ -226,7 +226,7 @@ end;
 
 function TMCPToolBase<T, R>.GetOutputSchema: TJSONObject;
 begin
-  Result := TMCPSchemaGenerator.GenerateSchema(R);
+  Result := TMCPSchemaGenerator.GenerateSchema(R, True);
 end;
 
 end.

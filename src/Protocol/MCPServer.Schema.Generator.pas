@@ -15,8 +15,8 @@ type
     class function GetPropertyJsonName(Prop: TRttiProperty; RType: TRttiType): string;
     class function IsRequiredProperty(Prop: TRttiProperty): Boolean;
   public
-    class function GenerateSchema(Cls: TClass): TJSONObject;
-    class function GenerateSchemaFromInstance(Instance: TObject): TJSONObject;
+    class function GenerateSchema(Cls: TClass; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
+    class function GenerateSchemaFromInstance(Instance: TObject; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
   end;
 
 implementation
@@ -27,7 +27,7 @@ uses
 
 { TMCPSchemaGenerator }
 
-class function TMCPSchemaGenerator.GenerateSchema(Cls: TClass): TJSONObject;
+class function TMCPSchemaGenerator.GenerateSchema(Cls: TClass; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('type', 'object');
@@ -42,7 +42,7 @@ begin
 
     for var RttiProp in RttiType.GetProperties do
     begin
-      if RttiProp.IsReadable and RttiProp.IsWritable then
+      if RttiProp.IsReadable and (IncludeReadOnlyProperties or RttiProp.IsWritable) then
       begin
         var JsonName := GetPropertyJsonName(RttiProp, RttiType);
 
@@ -84,9 +84,9 @@ begin
   end;
 end;
 
-class function TMCPSchemaGenerator.GenerateSchemaFromInstance(Instance: TObject): TJSONObject;
+class function TMCPSchemaGenerator.GenerateSchemaFromInstance(Instance: TObject; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
 begin
-  Result := GenerateSchema(Instance.ClassType);
+  Result := GenerateSchema(Instance.ClassType, IncludeReadOnlyProperties);
 end;
 
 class function TMCPSchemaGenerator.GetJsonTypeFromRttiType(RttiType: TRttiType): string;
