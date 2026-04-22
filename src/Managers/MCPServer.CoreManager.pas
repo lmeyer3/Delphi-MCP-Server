@@ -16,20 +16,25 @@ type
   private
     FSessionID: string;
     FSettings: TMCPSettings;
+    class procedure ParseClientElicitationCapabilities(const Params: TJSONObject;
+      out FormSupported, URLSupported: Boolean); static;
   public
     constructor Create(ASettings: TMCPSettings);
-    
+
     function GetCapabilityName: string;
     function HandlesMethod(const Method: string): Boolean;
     function ExecuteMethod(const Method: string; const Params: TJSONObject): TValue;
-    
+
     function Initialize(const Params: TJSONObject): TValue;
     function Ping: TValue;
-    
+
     property SessionID: string read FSessionID;
   end;
 
 implementation
+
+uses
+  MCPServer.SessionManager;
 
 { TMCPCoreManager }
 
@@ -40,6 +45,33 @@ begin
   FSessionID := '';
 end;
 
+class procedure TMCPCoreManager.ParseClientElicitationCapabilities(
+  const Params: TJSONObject; out FormSupported, URLSupported: Boolean);
+begin
+  FormSupported := False;
+  URLSupported := False;
+
+  if not Assigned(Params) then
+    Exit;
+
+  var Capabilities := Params.GetValue('capabilities') as TJSONObject;
+  if not Assigned(Capabilities) then
+    Exit;
+
+  var Elicitation := Capabilities.GetValue('elicitation') as TJSONObject;
+  if not Assigned(Elicitation) then
+    Exit;
+
+  if Elicitation.Count = 0 then
+  begin
+    FormSupported := True;
+    Exit;
+  end;
+
+  FormSupported := Assigned(Elicitation.GetValue('form'));
+  URLSupported := Assigned(Elicitation.GetValue('url'));
+end;
+
 function TMCPCoreManager.GetCapabilityName: string;
 begin
   Result := 'core';
@@ -47,7 +79,7 @@ end;
 
 function TMCPCoreManager.HandlesMethod(const Method: string): Boolean;
 begin
-  Result := (Method = 'initialize') or 
+  Result := (Method = 'initialize') or
             (Method = 'notifications/initialized') or
             (Method = 'ping');
 end;
@@ -68,9 +100,12 @@ begin
 end;
 
 function TMCPCoreManager.Initialize(const Params: TJSONObject): TValue;
+var
+  FormSupported: Boolean;
+  URLSupported: Boolean;
 begin
   TLogger.Info('MCP Initialize called');
-  
+
   if Assigned(Params) then
   begin
     var ClientInfo := Params.GetValue('clientInfo') as TJSONObject;
@@ -84,35 +119,42 @@ begin
         TLogger.Info(Format('Client: %s v%s', [ClientName.Value, ClientVersion.Value]));
     end;
   end;
-  
+
   FSessionID := TGuid.NewGuid.ToString;
-  
+
+  ParseClientElicitationCapabilities(Params, FormSupported, URLSupported);
+  TMCPSessionManager.Instance.StoreClientCapabilities(FSessionID, FormSupported, URLSupported);
+
+  if FormSupported or URLSupported then
+    TLogger.Info(Format('Client elicitation support - form: %s, url: %s', [
+      BoolToStr(FormSupported, True), BoolToStr(URLSupported, True)]));
+
   var ResultJSON := TJSONObject.Create;
   try
     ResultJSON.AddPair('protocolVersion', MCP_PROTOCOL_VERSION);
-    
+
     var Capabilities := TJSONObject.Create;
     ResultJSON.AddPair('capabilities', Capabilities);
-    
+
     var ToolsCap := TJSONObject.Create;
     Capabilities.AddPair('tools', ToolsCap);
     ToolsCap.AddPair('supportsProgress', TJSONBool.Create(False));
     ToolsCap.AddPair('supportsCancellation', TJSONBool.Create(False));
-    
+
     var ResourcesCap := TJSONObject.Create;
     Capabilities.AddPair('resources', ResourcesCap);
     ResourcesCap.AddPair('subscribe', TJSONBool.Create(False));
     ResourcesCap.AddPair('listChanged', TJSONBool.Create(False));
-    
+
     ResultJSON.AddPair('sessionId', FSessionID);
-    
+
     var ServerInfo := TJSONObject.Create;
     ResultJSON.AddPair('serverInfo', ServerInfo);
     ServerInfo.AddPair('name', FSettings.ServerName);
     ServerInfo.AddPair('version', FSettings.ServerVersion);
-    
+
     TLogger.Info('Created new MCP session: ' + FSessionID);
-    
+
     Result := TValue.From<TJSONObject>(ResultJSON);
   except
     ResultJSON.Free;
@@ -123,7 +165,7 @@ end;
 function TMCPCoreManager.Ping: TValue;
 begin
   TLogger.Info('MCP Ping called');
-  
+
   var ResultJSON := TJSONObject.Create;
   try
     Result := TValue.From<TJSONObject>(ResultJSON);
