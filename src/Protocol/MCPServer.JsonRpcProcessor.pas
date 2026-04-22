@@ -17,21 +17,19 @@ type
     class function ExtractRequestID(JSONRequest: TJSONObject): TValue;
     class function CreateJSONResponse(const RequestID: TValue): TJSONObject;
     class procedure AddRequestIDToResponse(Response: TJSONObject; const RequestID: TValue);
-    class function ExecuteMethodCall(ManagerRegistry: IMCPManagerRegistry; const MethodName: string; Params: TJSONObject): TValue;
-    class function CreateErrorResponse(const RequestID: TValue; ErrorCode: Integer; const ErrorMessage: string): string;
+    class function ExecuteMethodCall(ManagerRegistry: IMCPManagerRegistry; const MethodName: string;
+      Params: TJSONObject; const SessionID: string): TValue;
+    class function CreateErrorResponse(const RequestID: TValue; ErrorCode: Integer;
+      const ErrorMessage: string; const ErrorData: TJSONObject = nil): string;
   public
     constructor Create(ManagerRegistry: IMCPManagerRegistry);
     function ProcessRequest(const RequestBody: string; const SessionID: string): string;
   end;
 
-const
-  JSONRPC_PARSE_ERROR = -32700;
-  JSONRPC_INVALID_REQUEST = -32600;
-  JSONRPC_METHOD_NOT_FOUND = -32601;
-  JSONRPC_INVALID_PARAMS = -32602;
-  JSONRPC_INTERNAL_ERROR = -32603;
-
 implementation
+
+uses
+  MCPServer.RequestContext;
 
 { TMCPJsonRpcProcessor }
 
@@ -58,6 +56,12 @@ end;
 
 class function TMCPJsonRpcProcessor.ExtractRequestID(JSONRequest: TJSONObject): TValue;
 begin
+  if not Assigned(JSONRequest) then
+  begin
+    Result := TValue.Empty;
+    Exit;
+  end;
+
   var IdValue := JSONRequest.GetValue('id');
   if not Assigned(IdValue) then
   begin
@@ -80,7 +84,8 @@ begin
   AddRequestIDToResponse(Result, RequestID);
 end;
 
-class procedure TMCPJsonRpcProcessor.AddRequestIDToResponse(Response: TJSONObject; const RequestID: TValue);
+class procedure TMCPJsonRpcProcessor.AddRequestIDToResponse(Response: TJSONObject;
+  const RequestID: TValue);
 begin
   if RequestID.IsEmpty then
   begin
@@ -96,8 +101,9 @@ begin
     Response.AddPair('id', TJSONNull.Create);
 end;
 
-class function TMCPJsonRpcProcessor.ExecuteMethodCall(ManagerRegistry: IMCPManagerRegistry;
-  const MethodName: string; Params: TJSONObject): TValue;
+class function TMCPJsonRpcProcessor.ExecuteMethodCall(
+  ManagerRegistry: IMCPManagerRegistry; const MethodName: string; Params: TJSONObject;
+  const SessionID: string): TValue;
 begin
   if not Assigned(ManagerRegistry) then
     raise Exception.Create('Manager registry not initialized');
@@ -106,11 +112,16 @@ begin
   if not Assigned(Manager) then
     raise Exception.CreateFmt('Method [%s] not found. The method does not exist or is not available.', [MethodName]);
 
-  Result := Manager.ExecuteMethod(MethodName, Params);
+  TMCPRequestContext.Enter(SessionID);
+  try
+    Result := Manager.ExecuteMethod(MethodName, Params);
+  finally
+    TMCPRequestContext.Leave;
+  end;
 end;
 
 class function TMCPJsonRpcProcessor.CreateErrorResponse(const RequestID: TValue;
-  ErrorCode: Integer; const ErrorMessage: string): string;
+  ErrorCode: Integer; const ErrorMessage: string; const ErrorData: TJSONObject): string;
 begin
   var JSONResponse := CreateJSONResponse(RequestID);
   try
@@ -118,6 +129,8 @@ begin
     JSONResponse.AddPair('error', ErrorObj);
     ErrorObj.AddPair('code', TJSONNumber.Create(ErrorCode));
     ErrorObj.AddPair('message', ErrorMessage);
+    if Assigned(ErrorData) then
+      ErrorObj.AddPair('data', TJSONObject.ParseJSONValue(ErrorData.ToJSON) as TJSONObject);
     Result := JSONResponse.ToJSON;
   finally
     JSONResponse.Free;
@@ -129,37 +142,38 @@ begin
   Result := '';
   var JSONRequest: TJSONObject := nil;
   var JSONResponse: TJSONObject := nil;
+  var ErrorData: TJSONObject := nil;
 
   try
     try
       JSONRequest := ParseJSONRequest(RequestBody);
 
       var RequestID := ExtractRequestID(JSONRequest);
-
       var MethodValue := JSONRequest.GetValue('method');
-      var MethodName := '';
-      if Assigned(MethodValue) then
-        MethodName := MethodValue.Value;
+      var ResultValue := JSONRequest.GetValue('result');
+      var ErrorValue := JSONRequest.GetValue('error');
 
-      // Notifications (requests without id) should not have a response
-      if RequestID.IsEmpty then
-      begin
-        if MethodName = 'initialized' then
-          TLogger.Info('MCP Initialized notification received')
-        else
-          TLogger.Info('Notification received: ' + MethodName);
+      if Assigned(ResultValue) or Assigned(ErrorValue) then
         Exit;
-      end;
 
-      JSONResponse := CreateJSONResponse(RequestID);
+      if not Assigned(MethodValue) or (MethodValue.Value = '') then
+        raise Exception.Create('JSON-RPC request must include a method');
 
+      var MethodName := MethodValue.Value;
       var ParamsValue := JSONRequest.GetValue('params');
       var Params: TJSONObject := nil;
       if Assigned(ParamsValue) and (ParamsValue is TJSONObject) then
         Params := ParamsValue as TJSONObject;
 
-      var ExecuteResult := ExecuteMethodCall(FManagerRegistry, MethodName, Params);
+      if RequestID.IsEmpty then
+      begin
+        ExecuteMethodCall(FManagerRegistry, MethodName, Params, SessionID);
+        Exit;
+      end;
 
+      JSONResponse := CreateJSONResponse(RequestID);
+
+      var ExecuteResult := ExecuteMethodCall(FManagerRegistry, MethodName, Params, SessionID);
       if not ExecuteResult.IsEmpty then
       begin
         if ExecuteResult.IsType<TJSONObject> then
@@ -178,10 +192,15 @@ begin
         TLogger.Error('Error processing request: ' + E.Message);
 
         var ErrorCode := JSONRPC_INTERNAL_ERROR;
-        if Pos('not found', E.Message) > 0 then
+        if E is EMCPJsonRpcError then
+        begin
+          ErrorCode := EMCPJsonRpcError(E).Code;
+          ErrorData := EMCPJsonRpcError(E).Data;
+        end
+        else if Pos('not found', E.Message) > 0 then
           ErrorCode := JSONRPC_METHOD_NOT_FOUND;
 
-        Result := CreateErrorResponse(ExtractRequestID(JSONRequest), ErrorCode, E.Message);
+        Result := CreateErrorResponse(ExtractRequestID(JSONRequest), ErrorCode, E.Message, ErrorData);
       end;
     end;
   finally
