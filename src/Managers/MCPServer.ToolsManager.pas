@@ -13,7 +13,7 @@ uses
   MCPServer.Tool.Base;
 
 type
-  TMCPToolsManager = class(TInterfacedObject, IMCPCapabilityManager)
+  TMCPToolsManager = class(TInterfacedObject, IMCPCapabilityManager, IMCPToolManager)
   strict private
     function ExtractToolNameAndArguments(const Params: TJSONObject; out ToolName: string; out Arguments: TJSONObject): Boolean;
     function ExecuteTool(const Tool: IMCPTool; const Arguments: TJSONObject): TValue;
@@ -22,9 +22,9 @@ type
     function CreateToolJSON(const Tool: IMCPTool): TJSONObject;
   private
     FTools: TDictionary<string, IMCPTool>;
-    procedure RegisterTool(const Tool: IMCPTool);
     procedure RegisterBuiltInTools;
   public
+    procedure RegisterTool(const Tool: IMCPTool);
     constructor Create;
     destructor Destroy; override;
 

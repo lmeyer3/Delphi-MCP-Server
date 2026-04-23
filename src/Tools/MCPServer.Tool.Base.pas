@@ -5,7 +5,8 @@ interface
 uses
   System.SysUtils,
   System.Rtti,
-  System.JSON;
+  System.JSON,
+  MCPServer.Types;
 
 type
   IMCPTool = interface
@@ -22,6 +23,11 @@ type
     property Description: string read GetDescription;
     property InputSchema: TJSONObject read GetInputSchema;
     property OutputSchema: TJSONObject read GetOutputSchema;
+  end;
+
+  IMCPToolManager = interface(IMCPCapabilityManager)
+    ['{B89C05DB-92B7-4AE7-BB9D-3FAE68459B90}']
+    procedure RegisterTool(const Tool: IMCPTool);
   end;
 
   TMCPToolBase = class(TInterfacedObject, IMCPTool)

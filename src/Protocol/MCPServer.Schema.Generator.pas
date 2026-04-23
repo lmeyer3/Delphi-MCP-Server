@@ -12,10 +12,12 @@ type
   TMCPSchemaGenerator = class
   private
     class function GetJsonTypeFromRttiType(RttiType: TRttiType): string;
+    class function GenerateTypeSchema(RttiType: TRttiType; IncludeReadOnlyProperties: Boolean): TJSONObject;
     class function GetPropertyJsonName(Prop: TRttiProperty; RType: TRttiType): string;
     class function IsRequiredProperty(Prop: TRttiProperty): Boolean;
   public
-    class function GenerateSchema(Cls: TClass; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
+    class function GenerateSchema(Cls: TClass; IncludeReadOnlyProperties: Boolean = False): TJSONObject; overload;
+    class function GenerateSchema(const aRttiType : TRttiType; IncludeReadOnlyProperties: Boolean = False): TJSONObject; overload;
     class function GenerateSchemaFromInstance(Instance: TObject; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
   end;
 
@@ -23,11 +25,84 @@ implementation
 
 uses
   System.Generics.Collections,
+  System.Types,
+  System.StrUtils,
   MCPServer.Types;
+
+type
+  TRttiTypeHelper = class helper for TRttiType
+    function ExtractGenericArguments: string;
+    function GetGenericArguments: TArray<TRttiType>;
+  end;
+
+function TRttiTypeHelper.ExtractGenericArguments: string;
+var
+  i: Integer;
+begin
+  i := Pos('<', Name);
+  if i > 0 then
+  begin
+    Result := Copy(Name, Succ(i), Length(Name) - Succ(i));
+  end
+  else
+  begin
+    Result := ''
+  end;
+end;
+
+function TRttiTypeHelper.GetGenericArguments: TArray<TRttiType>;
+var
+  i: Integer;
+  args: TStringDynArray;
+begin
+  var lContext := TRttiContext.Create;
+  args := SplitString(ExtractGenericArguments, ',');
+  SetLength(Result, Length(args));
+  for i := 0 to Pred(Length(args)) do
+  begin
+    Result[i] := lContext.FindType(args[i]);
+  end;
+end;
 
 { TMCPSchemaGenerator }
 
 class function TMCPSchemaGenerator.GenerateSchema(Cls: TClass; IncludeReadOnlyProperties: Boolean = False): TJSONObject;
+begin
+  var RttiContext := TRttiContext.Create;
+  try
+    var RttiType := RttiContext.GetType(Cls);
+    Result := GenerateSchema(RttiType, IncludeReadOnlyProperties);
+  finally
+    RttiContext.Free;
+  end;
+end;
+
+class function TMCPSchemaGenerator.GenerateTypeSchema(RttiType: TRttiType; IncludeReadOnlyProperties: Boolean): TJSONObject;
+begin
+  var JsonType := GetJsonTypeFromRttiType(RttiType);
+
+  if JsonType = 'object' then
+    Exit(GenerateSchema(RttiType, IncludeReadOnlyProperties));
+
+  Result := TJSONObject.Create;
+  Result.AddPair('type', JsonType);
+
+  if JsonType = 'array' then
+  begin
+    if RttiType.Name.StartsWith('TArray<') then
+    begin
+      var GenericArguments := RttiType.GetGenericArguments();
+      if Length(GenericArguments) > 0 then
+        Result.AddPair('items', GenerateTypeSchema(GenericArguments[0], IncludeReadOnlyProperties))
+      else
+        Result.AddPair('items', TJSONObject.Create);
+    end
+    else
+      Result.AddPair('items', TJSONObject.Create);
+  end;
+end;
+
+class function TMCPSchemaGenerator.GenerateSchema(const aRttiType: TRttiType; IncludeReadOnlyProperties: Boolean): TJSONObject;
 begin
   Result := TJSONObject.Create;
   Result.AddPair('type', 'object');
@@ -38,13 +113,11 @@ begin
 
   var RttiContext := TRttiContext.Create;
   try
-    var RttiType := RttiContext.GetType(Cls);
-
-    for var RttiProp in RttiType.GetProperties do
+    for var RttiProp in aRttiType.GetProperties do
     begin
       if RttiProp.IsReadable and (IncludeReadOnlyProperties or RttiProp.IsWritable) then
       begin
-        var JsonName := GetPropertyJsonName(RttiProp, RttiType);
+        var JsonName := GetPropertyJsonName(RttiProp, aRttiType);
 
         var PropSchema := TJSONObject.Create;
         Properties.AddPair(JsonName, PropSchema);
@@ -53,7 +126,19 @@ begin
         PropSchema.AddPair('type', JsonType);
 
         if JsonType = 'array' then
-          PropSchema.AddPair('items', TJSONObject.Create);
+        begin
+          if RttiProp.PropertyType.Name.StartsWith('TArray<') then
+          begin
+            var lGenericArguments := RttiProp.PropertyType.GetGenericArguments();
+            PropSchema.AddPair('items', GenerateTypeSchema(lGenericArguments[0], IncludeReadOnlyProperties));
+          end
+          else
+            PropSchema.AddPair('items', TJSONObject.Create);
+        end
+        else if JsonType = 'object' then
+        begin
+          PropSchema.AddPair('properties', GenerateSchema(RttiProp.PropertyType, IncludeReadOnlyProperties));
+        end;
 
         for var Attr in RttiProp.GetAttributes do
         begin
